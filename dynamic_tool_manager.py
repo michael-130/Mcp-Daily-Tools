@@ -344,7 +344,10 @@ class DynamicToolManager:
             "health": "health_focus", 
             "productivity": "task_automation",
             "security": "security_privacy",
-            "data": "data_reports"
+            "data": "data_reports",
+            "api": "api_tools_module",
+            "research": "api_tools_module",
+            "information": "api_tools_module"
         }
         
         module_name = module_mapping.get(category.lower())

@@ -49,3 +49,8 @@ jsonschema>=4.19.0
 
 # Dynamic Tool Management
 importlib-metadata>=6.8.0
+
+# API Integrations
+aiohttp>=3.8.0
+feedparser>=6.0.0
+xmltodict>=0.13.0
