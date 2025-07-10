@@ -56,6 +56,11 @@ class TaskAutomationModule:
             Dict[str, Any]: Time estimation with confidence, recommendations, and optimal time slots
         """
         try:
+            # Handle any unexpected parameters gracefully
+            if isinstance(task_description, dict):
+                # If a dict is passed, extract the description
+                task_description = task_description.get('task_description', str(task_description))
+            
             # Encode complexity
             complexity_map = {"low": 1, "medium": 2, "high": 3}
             complexity_encoded = complexity_map.get(complexity, 2)

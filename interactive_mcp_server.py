@@ -246,9 +246,21 @@ Generated at: {datetime.now().isoformat()}
             try:
                 # Parse parameters
                 if parameters.strip():
-                    params = json.loads(parameters)
+                    try:
+                        params = json.loads(parameters)
+                    except json.JSONDecodeError:
+                        # Try to parse as simple key=value pairs
+                        params = {}
+                        for pair in parameters.split(','):
+                            if '=' in pair:
+                                key, value = pair.split('=', 1)
+                                params[key.strip()] = value.strip()
                 else:
                     params = {}
+                
+                # Filter out any 'param' keys that might be causing issues
+                if 'param' in params:
+                    del params['param']
                 
                 # Execute tool synchronously for Gradio
                 loop = asyncio.new_event_loop()
@@ -263,8 +275,6 @@ Generated at: {datetime.now().isoformat()}
                 else:
                     return f"❌ **Error**\n\n{result.get('error', 'Unknown error')}"
                     
-            except json.JSONDecodeError:
-                return "❌ **Error**: Invalid JSON parameters"
             except Exception as e:
                 return f"❌ **Error**: {str(e)}"
         

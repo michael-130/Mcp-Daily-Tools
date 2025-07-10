@@ -466,12 +466,25 @@ class DynamicToolManager:
         try:
             tool_func = self.loaded_tools[tool_name]
             
+            # Clean up parameters - remove any problematic keys
+            clean_kwargs = {k: v for k, v in kwargs.items() if k != 'param'}
+            
+            # Get function signature to validate parameters
+            sig = inspect.signature(tool_func)
+            valid_params = {}
+            
+            for param_name, param_value in clean_kwargs.items():
+                if param_name in sig.parameters:
+                    valid_params[param_name] = param_value
+                else:
+                    logger.warning(f"Ignoring invalid parameter '{param_name}' for tool '{tool_name}'")
+            
             # Execute in thread pool for CPU-bound tasks
             if inspect.iscoroutinefunction(tool_func):
-                result = await tool_func(**kwargs)
+                result = await tool_func(**valid_params)
             else:
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(self.executor, lambda: tool_func(**kwargs))
+                result = await loop.run_in_executor(self.executor, lambda: tool_func(**valid_params))
             
             # Update usage statistics
             self._update_tool_usage(tool_name, success=True)
