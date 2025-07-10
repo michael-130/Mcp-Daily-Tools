@@ -43,26 +43,20 @@ pip install -r requirements.txt
 ### Running the System
 
 ```bash
-# Start with Gradio web interface (recommended)
-python main.py --mode gradio
+# Simple start - just run the app!
+python app.py
 
-# Start with MCP server only
-python main.py --mode mcp
+# Alternative quick start options
+python quick_start.py web      # Web interface (same as app.py)
+python quick_start.py mcp      # MCP server only  
+python quick_start.py test     # Test API connections
+python quick_start.py install  # Install dependencies
 
-# Start both interfaces
-python main.py --mode both
-
-# Test API connections on startup
-python main.py --test-apis
-
-# Enable debug logging
-python main.py --debug
-```
-
-### Web Interface
-
-Open your browser to `http://localhost:7860` to access the interactive web interface with:
-
+# Advanced options (using main.py)
+python main.py --mode gradio   # Web interface with options
+python main.py --mode mcp      # MCP server only
+python main.py --test-apis     # Test APIs on startup
+python main.py --debug        # Enable debug logging
 - **💬 Chat Interface** - Natural language interaction with automatic tool detection
 - **🔧 Tool Execution** - Direct tool execution with parameter input
 - **📊 System Status** - Real-time monitoring of modules and APIs

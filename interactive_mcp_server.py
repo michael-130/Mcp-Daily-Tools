@@ -379,15 +379,15 @@ Generated at: {datetime.now().isoformat()}
         
         return interface
     
-    async def run_server(self):
-        """Run the MCP server"""
-        async with self.server.run_stdio() as streams:
-            await self.server.run()
-    
     def launch_gradio(self, **kwargs):
         """Launch Gradio interface"""
         interface = self.create_gradio_interface()
         return interface.launch(**kwargs)
+    
+    async def run_server(self):
+        """Run the MCP server"""
+        async with self.server.run_stdio() as streams:
+            await self.server.run()
     
     def shutdown(self):
         """Shutdown the server"""
