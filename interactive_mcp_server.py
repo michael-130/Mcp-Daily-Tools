@@ -1,407 +1,314 @@
 import asyncio
 import json
-import logging
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-from datetime import datetime
-import gradio as gr
-from mcp.server import Server
-from mcp.types import (
-    TextContent, 
-    Tool, 
-    CallToolResult, 
-    ListToolsResult,
-    GetPromptResult,
-    ListPromptsResult,
-    Prompt,
-    PromptArgument
-)
-
-from dynamic_tool_manager import DynamicToolManager
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+import schedule
+import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
-class InteractiveMCPServer:
-    """Interactive MCP Server with dynamic tool management"""
+class TaskAutomationModule:
+    """Comprehensive task automation and management module"""
     
     def __init__(self):
-        self.tool_manager = DynamicToolManager()
-        self.server = Server("interactive-mcp-tools")
-        self.chat_history = []
-        self.setup_server_handlers()
-        
-        # Load initial modules
-        self._load_initial_modules()
+        self._local = threading.local()
+        self.time_estimation_model = None
+        self.scheduled_tasks = []
+        self.email_templates = {}
+        self.setup_ml_models()
     
-    def _load_initial_modules(self):
-        """Load initial set of modules"""
-        initial_modules = [
-            "task_automation",
-            "data_reports", 
-            "financial_compliance",
-            "health_focus",
-            "security_privacy"
-        ]
+    def get_scheduled_tasks(self):
+        """Get thread-local scheduled tasks"""
+        if not hasattr(self._local, 'scheduled_tasks'):
+            self._local.scheduled_tasks = []
+        return self._local.scheduled_tasks
         
-        for module in initial_modules:
-            self.tool_manager.load_module(module)
-    
-    def setup_server_handlers(self):
-        """Setup MCP server handlers"""
+    def setup_ml_models(self):
+        """Initialize ML models for task estimation"""
+        # Mock training data for task time estimation
+        training_data = {
+            'task_complexity': [1, 2, 3, 1, 2, 3, 2, 3, 1, 2],
+            'task_type_encoded': [0, 1, 2, 0, 1, 2, 1, 2, 0, 1],
+            'historical_time': [0.5, 2.0, 4.0, 0.7, 1.8, 3.5, 2.2, 4.5, 0.6, 1.9]
+        }
         
-        @self.server.list_tools()
-        async def list_tools() -> ListToolsResult:
-            """List all available tools dynamically"""
-            tools = []
-            available_tools = self.tool_manager.get_available_tools()
+        df = pd.DataFrame(training_data)
+        X = df[['task_complexity', 'task_type_encoded']]
+        y = df['historical_time']
+        
+        self.time_estimation_model = RandomForestRegressor(n_estimators=100, random_state=42)
+        self.time_estimation_model.fit(X, y)
+        
+    def estimate_task_time(self, task_description: str, task_type: str = "general", complexity: str = "medium") -> Dict[str, Any]:
+        """Estimate time required for a task using ML models
+        
+        Args:
+            task_description (str): Description of the task to estimate
+            task_type (str, optional): Type of task. Defaults to "general"
+            complexity (str, optional): Complexity level of the task. Defaults to "medium"
             
-            for tool_info in available_tools:
-                # Convert to MCP Tool format
-                input_schema = {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
+        Returns:
+            Dict[str, Any]: Time estimation with confidence, recommendations, and optimal time slots
+        """
+        try:
+            # Validate and clean input parameters
+            if not isinstance(task_description, str):
+                if isinstance(task_description, dict):
+                    task_description = task_description.get('task_description', str(task_description))
+            
+            # Encode complexity
+            complexity_map = {"low": 1, "medium": 2, "high": 3}
+            complexity_encoded = complexity_map.get(complexity, 2)
+            
+            # Encode task type
+            type_map = {"general": 0, "technical": 1, "creative": 2, "administrative": 1}
+            type_encoded = type_map.get(task_type, 0)
+            
+            # Predict using ML model
+            prediction = self.time_estimation_model.predict([[complexity_encoded, type_encoded]])
+            estimated_hours = round(prediction[0], 2)
+            
+            # Add confidence interval
+            confidence = 0.85 if complexity == "medium" else 0.75
+            
+            result = {
+                "task_description": task_description,
+                "estimated_hours": estimated_hours,
+                "confidence": confidence,
+                "complexity": complexity,
+                "task_type": task_type,
+                "recommendation": self._generate_task_recommendation(estimated_hours, complexity),
+                "suggested_breaks": max(1, int(estimated_hours // 2)),
+                "optimal_time_slots": self._suggest_optimal_time_slots(estimated_hours)
+            }
+            
+            logger.info(f"Task time estimated: {task_description} - {estimated_hours} hours")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error estimating task time: {str(e)}")
+            return {"error": str(e)}
+    
+    def schedule_task(self, task: str, priority: str, deadline: Optional[str] = None, estimated_duration: Optional[float] = None) -> Dict[str, Any]:
+        """Schedule a task with optimal timing
+        
+        Args:
+            task (str): Task description
+            priority (str): Priority level of the task
+            deadline (Optional[str], optional): Task deadline in ISO format. Defaults to None
+            estimated_duration (Optional[float], optional): Estimated duration in hours. Defaults to None
+            
+        Returns:
+            Dict[str, Any]: Scheduling result with optimal time, notifications, and recommendations
+        """
+        try:
+            # Parse deadline if provided
+            deadline_dt = None
+            if deadline:
+                deadline_dt = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+            
+            # Calculate optimal start time
+            if estimated_duration and deadline_dt:
+                buffer_time = estimated_duration * 0.2  # 20% buffer
+                optimal_start = deadline_dt - timedelta(hours=estimated_duration + buffer_time)
+            else:
+                optimal_start = datetime.now() + timedelta(hours=1)
+            
+            # Priority-based scheduling
+            priority_weights = {"urgent": 4, "high": 3, "medium": 2, "low": 1}
+            weight = priority_weights.get(priority, 2)
+            
+            task_entry = {
+                "id": len(self.scheduled_tasks) + 1,
+                "task": task,
+                "priority": priority,
+                "priority_weight": weight,
+                "deadline": deadline_dt,
+                "estimated_duration": estimated_duration,
+                "optimal_start": optimal_start,
+                "status": "scheduled",
+                "created_at": datetime.now(),
+                "dependencies": [],
+                "resources_required": []
+            }
+            
+            scheduled_tasks = self.get_scheduled_tasks()
+            task_entry["id"] = len(scheduled_tasks) + 1
+            scheduled_tasks.append(task_entry)
+            
+            # Sort tasks by priority and deadline
+            scheduled_tasks.sort(key=lambda x: (x["priority_weight"], x["deadline"] or datetime.max), reverse=True)
+            
+            result = {
+                "task_id": task_entry["id"],
+                "scheduled_time": optimal_start.isoformat(),
+                "priority_rank": len([t for t in scheduled_tasks if t["priority_weight"] >= weight]),
+                "recommendations": [
+                    f"Start task at {optimal_start.strftime('%Y-%m-%d %H:%M')}",
+                    f"Allow {estimated_duration or 2} hours for completion",
+                    f"Priority level: {priority}"
+                ],
+                "calendar_integration": True,
+                "notifications": {
+                    "reminder_1": (optimal_start - timedelta(hours=1)).isoformat(),
+                    "reminder_2": (optimal_start - timedelta(minutes=15)).isoformat()
                 }
-                
-                for param in tool_info["parameters"]:
-                    input_schema["properties"][param["name"]] = {
-                        "type": "string",  # Simplified for now
-                        "description": f"Parameter: {param['name']}"
-                    }
-                    if param["required"]:
-                        input_schema["required"].append(param["name"])
-                
-                tool = Tool(
-                    name=tool_info["name"],
-                    description=tool_info["description"],
-                    inputSchema=input_schema
-                )
-                tools.append(tool)
+            }
             
-            return ListToolsResult(tools=tools)
+            logger.info(f"Task scheduled: {task} with priority {priority}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error scheduling task: {str(e)}")
+            return {"error": str(e)}
+    
+    def automate_email(self, email_type: str, recipient: str, subject: str = "", template: str = "") -> Dict[str, Any]:
+        """Automate email processing and responses
         
-        @self.server.call_tool()
-        async def call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
-            """Execute a tool dynamically"""
-            result = await self.tool_manager.execute_tool(name, **arguments)
+        Args:
+            email_type (str): Type of email to automate
+            recipient (str): Email recipient
+            subject (str, optional): Email subject. Defaults to ""
+            template (str, optional): Email template. Defaults to ""
             
-            if result.get("success", False):
-                content = json.dumps(result["result"], indent=2, default=str)
-            else:
-                content = f"Error: {result.get('error', 'Unknown error')}"
+        Returns:
+            Dict[str, Any]: Automated email with AI suggestions, tracking, and personalization
+        """
+        try:
+            # Email automation logic
+            automated_templates = {
+                "meeting_request": {
+                    "subject": "Meeting Request - {topic}",
+                    "body": "Dear {recipient},\n\nI would like to schedule a meeting to discuss {topic}.\n\nProposed times:\n- {time_option_1}\n- {time_option_2}\n\nPlease let me know your availability.\n\nBest regards"
+                },
+                "follow_up": {
+                    "subject": "Follow-up: {original_subject}",
+                    "body": "Dear {recipient},\n\nI wanted to follow up on {topic}.\n\nCould you please provide an update on the status?\n\nThank you"
+                },
+                "status_update": {
+                    "subject": "Status Update: {project_name}",
+                    "body": "Dear {recipient},\n\nHere's the current status of {project_name}:\n\n- Completed: {completed_items}\n- In Progress: {in_progress_items}\n- Next Steps: {next_steps}\n\nPlease let me know if you have any questions."
+                }
+            }
             
-            return CallToolResult(
-                content=[TextContent(type="text", text=content)]
-            )
+            selected_template = automated_templates.get(email_type, {
+                "subject": subject or "Automated Email",
+                "body": template or "This is an automated email."
+            })
+            
+            # AI-powered email generation
+            ai_suggestions = self._generate_ai_email_suggestions(email_type, recipient)
+            
+            result = {
+                "email_type": email_type,
+                "recipient": recipient,
+                "subject": selected_template["subject"],
+                "body": selected_template["body"],
+                "ai_suggestions": ai_suggestions,
+                "automation_level": "high",
+                "send_time": "immediate",
+                "tracking": {
+                    "delivery_confirmation": True,
+                    "read_receipt": True,
+                    "follow_up_reminder": True
+                },
+                "personalization": {
+                    "tone": "professional",
+                    "formality": "medium",
+                    "custom_fields": {}
+                }
+            }
+            
+            logger.info(f"Email automation prepared for {recipient}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error automating email: {str(e)}")
+            return {"error": str(e)}
+    
+    def _generate_task_recommendation(self, estimated_hours: float, complexity: str) -> str:
+        """Generate task-specific recommendations
         
-        @self.server.list_prompts()
-        async def list_prompts() -> ListPromptsResult:
-            """List available prompts"""
-            prompts = [
-                Prompt(
-                    name="analyze_requirements",
-                    description="Analyze user requirements and suggest tools",
-                    arguments=[
-                        PromptArgument(name="user_input", description="User's request or requirement", required=True)
-                    ]
-                ),
-                Prompt(
-                    name="tool_status",
-                    description="Get status of all loaded tools and modules",
-                    arguments=[]
-                ),
-                Prompt(
-                    name="usage_analytics", 
-                    description="Get tool usage analytics and recommendations",
-                    arguments=[]
-                )
+        Args:
+            estimated_hours (float): Estimated hours for the task
+            complexity (str): Task complexity level
+            
+        Returns:
+            str: Task recommendation
+        """
+        if estimated_hours < 1:
+            return "This is a quick task. Consider batching with similar tasks."
+        elif estimated_hours < 3:
+            return "Medium task. Schedule during your peak productivity hours."
+        else:
+            return "Complex task. Break into smaller chunks and schedule over multiple sessions."
+    
+    def _suggest_optimal_time_slots(self, estimated_hours: float) -> List[str]:
+        """Suggest optimal time slots based on task duration
+        
+        Args:
+            estimated_hours (float): Estimated duration of the task
+            
+        Returns:
+            List[str]: Optimal time slots for the task
+        """
+        slots = []
+        if estimated_hours <= 2:
+            slots = ["09:00-11:00", "14:00-16:00", "16:00-18:00"]
+        else:
+            slots = ["09:00-12:00", "13:00-17:00"]
+        return slots
+    
+    def _generate_ai_email_suggestions(self, email_type: str, recipient: str) -> Dict[str, Any]:
+        """Generate AI-powered email suggestions
+        
+        Args:
+            email_type (str): Type of email
+            recipient (str): Email recipient
+            
+        Returns:
+            Dict[str, Any]: AI suggestions for email optimization
+        """
+        return {
+            "tone_suggestions": ["professional", "friendly", "formal"],
+            "subject_alternatives": [
+                f"Re: {email_type.replace('_', ' ').title()}",
+                f"Quick update on {email_type.replace('_', ' ')}",
+                f"Action required: {email_type.replace('_', ' ')}"
+            ],
+            "personalization_tips": [
+                "Include recipient's name",
+                "Reference previous conversations",
+                "Add specific context"
+            ],
+            "optimal_send_time": "10:00 AM or 2:00 PM",
+            "estimated_response_time": "2-4 hours"
+        }
+    
+    def get_task_analytics(self) -> Dict[str, Any]:
+        """Get comprehensive task analytics"""
+        scheduled_tasks = self.get_scheduled_tasks()
+        if not scheduled_tasks:
+            return {"message": "No tasks scheduled yet"}
+        
+        df = pd.DataFrame(scheduled_tasks)
+        
+        analytics = {
+            "total_tasks": len(scheduled_tasks),
+            "priority_distribution": df['priority'].value_counts().to_dict(),
+            "average_duration": df['estimated_duration'].mean() if 'estimated_duration' in df.columns else 0,
+            "completion_rate": 0.85,  # Mock completion rate
+            "productivity_score": 92,  # Mock productivity score
+            "recommendations": [
+                "Consider batching similar tasks",
+                "Schedule complex tasks during peak hours",
+                "Allow buffer time for unexpected delays"
             ]
-            return ListPromptsResult(prompts=prompts)
+        }
         
-        @self.server.get_prompt()
-        async def get_prompt(name: str, arguments: Dict[str, str]) -> GetPromptResult:
-            """Get dynamic prompts based on current system state"""
-            
-            if name == "analyze_requirements":
-                user_input = arguments.get("user_input", "")
-                analysis = self.tool_manager.detect_and_load_requirements(user_input)
-                
-                prompt_content = f"""
-Based on your request: "{user_input}"
-
-I've analyzed your requirements and here's what I found:
-
-**Detected Requirements:**
-{json.dumps(analysis['detected_requirements'], indent=2)}
-
-**Loaded Modules:**
-{', '.join(analysis['loaded_modules']) if analysis['loaded_modules'] else 'None'}
-
-**Failed Modules:**
-{', '.join(analysis['failed_modules']) if analysis['failed_modules'] else 'None'}
-
-**Installed Dependencies:**
-{', '.join(analysis['installed_dependencies']) if analysis['installed_dependencies'] else 'None'}
-
-**Available Tools:**
-{self._format_available_tools()}
-
-How would you like to proceed with these tools?
-"""
-            
-            elif name == "tool_status":
-                module_status = self.tool_manager.get_module_status()
-                available_tools = self.tool_manager.get_available_tools()
-                
-                prompt_content = f"""
-**System Status Report**
-Generated at: {datetime.now().isoformat()}
-
-**Module Status:**
-{json.dumps(module_status, indent=2, default=str)}
-
-**Available Tools:** {len(available_tools)}
-{self._format_available_tools()}
-
-**System Health:** {'✅ Good' if all(m.get('loaded', False) for m in module_status.values()) else '⚠️ Some issues detected'}
-"""
-            
-            elif name == "usage_analytics":
-                analytics = self.tool_manager.get_usage_analytics()
-                
-                prompt_content = f"""
-**Tool Usage Analytics**
-Generated at: {datetime.now().isoformat()}
-
-{json.dumps(analytics, indent=2, default=str)}
-
-**Recommendations:**
-- Most used tool: {analytics.get('most_used_tool', 'N/A')}
-- Average success rate: {analytics.get('average_success_rate', 0):.2%}
-- Consider optimizing frequently used tools
-- Monitor tools with low success rates
-"""
-            
-            else:
-                prompt_content = f"Unknown prompt: {name}"
-            
-            return GetPromptResult(
-                description=f"Dynamic prompt for {name}",
-                messages=[
-                    {"role": "system", "content": prompt_content}
-                ]
-            )
-    
-    def _format_available_tools(self) -> str:
-        """Format available tools for display"""
-        tools = self.tool_manager.get_available_tools()
-        if not tools:
-            return "No tools currently available"
-        
-        formatted = []
-        for tool in tools:
-            formatted.append(f"- **{tool['name']}**: {tool['description']} (Module: {tool['module']})")
-        
-        return '\n'.join(formatted)
-    
-    def create_gradio_interface(self) -> gr.Interface:
-        """Create Gradio interface for interactive tool management"""
-        
-        def process_user_input(user_input: str, chat_history: List[List[str]]) -> tuple:
-            """Process user input and return response"""
-            try:
-                # Detect and load requirements
-                analysis = self.tool_manager.detect_and_load_requirements(user_input)
-                
-                response = f"""
-🔍 **Requirement Analysis Complete**
-
-**Detected Requirements:** {len(analysis['detected_requirements'])}
-{', '.join([req['category'] for req in analysis['detected_requirements']])}
-
-**Loaded Modules:** {', '.join(analysis['loaded_modules']) if analysis['loaded_modules'] else 'None'}
-
-**Available Tools:** {len(self.tool_manager.get_available_tools())}
-
-**Next Steps:**
-1. Use the tools listed below for your tasks
-2. Ask for specific tool execution
-3. Request analytics or status updates
-
-**Available Tools:**
-{self._format_available_tools()}
-"""
-                
-                # Update chat history
-                chat_history.append([user_input, response])
-                
-                return "", chat_history
-                
-            except Exception as e:
-                error_response = f"❌ Error processing request: {str(e)}"
-                chat_history.append([user_input, error_response])
-                return "", chat_history
-        
-        def execute_tool_interface(tool_name: str, parameters: str) -> str:
-            """Execute tool through interface"""
-            try:
-                # Parse parameters
-                if parameters.strip():
-                    try:
-                        params = json.loads(parameters)
-                    except json.JSONDecodeError:
-                        # Try to parse as simple key=value pairs
-                        params = {}
-                        for pair in parameters.split(','):
-                            if '=' in pair:
-                                key, value = pair.split('=', 1)
-                                params[key.strip()] = value.strip()
-                else:
-                    params = {}
-                
-                # Filter out any 'param' keys that might be causing issues
-                if 'param' in params:
-                    del params['param']
-                
-                # Execute tool synchronously for Gradio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(
-                    self.tool_manager.execute_tool(tool_name, **params)
-                )
-                loop.close()
-                
-                if result.get("success", False):
-                    return f"✅ **Success**\n\n```json\n{json.dumps(result['result'], indent=2, default=str)}\n```"
-                else:
-                    return f"❌ **Error**\n\n{result.get('error', 'Unknown error')}"
-                    
-            except Exception as e:
-                return f"❌ **Error**: {str(e)}"
-        
-        def get_system_status() -> str:
-            """Get current system status"""
-            try:
-                module_status = self.tool_manager.get_module_status()
-                analytics = self.tool_manager.get_usage_analytics()
-                
-                status_report = f"""
-# 📊 System Status Report
-*Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-
-## 🔧 Module Status
-"""
-                for name, status in module_status.items():
-                    icon = "✅" if status.get('loaded', False) else "❌"
-                    status_report += f"- {icon} **{name}**: {'Loaded' if status.get('loaded', False) else 'Failed'}\n"
-                
-                status_report += f"""
-## 📈 Usage Analytics
-- **Total Tools**: {analytics.get('total_tools', 0)}
-- **Active Modules**: {analytics.get('active_modules', 0)}
-- **Most Used Tool**: {analytics.get('most_used_tool', 'N/A')}
-- **Average Success Rate**: {analytics.get('average_success_rate', 0):.2%}
-
-## 🛠️ Available Tools
-{self._format_available_tools()}
-"""
-                return status_report
-                
-            except Exception as e:
-                return f"❌ Error getting system status: {str(e)}"
-        
-        def get_tool_list() -> List[str]:
-            """Get list of available tools"""
-            tools = self.tool_manager.get_available_tools()
-            return [tool['name'] for tool in tools]
-        
-        # Create Gradio interface
-        with gr.Blocks(title="🚀 Interactive MCP Tools", theme=gr.themes.Soft()) as interface:
-            gr.Markdown("# 🚀 Interactive MCP Tools System")
-            gr.Markdown("Dynamic tool management with real-time requirement detection and automatic module loading.")
-            
-            with gr.Tab("💬 Chat Interface"):
-                chatbot = gr.Chatbot(
-                    value=[["system", "👋 Welcome! I can detect your requirements and automatically load the right tools. Just tell me what you need help with!"]],
-                    height=400
-                )
-                
-                with gr.Row():
-                    user_input = gr.Textbox(
-                        placeholder="Describe what you need help with...",
-                        label="Your Request",
-                        scale=4
-                    )
-                    submit_btn = gr.Button("Send", scale=1, variant="primary")
-                
-                submit_btn.click(
-                    process_user_input,
-                    inputs=[user_input, chatbot],
-                    outputs=[user_input, chatbot]
-                )
-                
-                user_input.submit(
-                    process_user_input,
-                    inputs=[user_input, chatbot], 
-                    outputs=[user_input, chatbot]
-                )
-            
-            with gr.Tab("🔧 Tool Execution"):
-                with gr.Row():
-                    tool_dropdown = gr.Dropdown(
-                        choices=get_tool_list(),
-                        label="Select Tool",
-                        scale=2
-                    )
-                    refresh_tools_btn = gr.Button("🔄 Refresh", scale=1)
-                
-                parameters_input = gr.Textbox(
-                    placeholder='{"param1": "value1", "param2": "value2"}',
-                    label="Parameters (JSON format)",
-                    lines=3
-                )
-                
-                execute_btn = gr.Button("▶️ Execute Tool", variant="primary")
-                
-                result_output = gr.Markdown(label="Result")
-                
-                refresh_tools_btn.click(
-                    lambda: gr.Dropdown(choices=get_tool_list()),
-                    outputs=tool_dropdown
-                )
-                
-                execute_btn.click(
-                    execute_tool_interface,
-                    inputs=[tool_dropdown, parameters_input],
-                    outputs=result_output
-                )
-            
-            with gr.Tab("📊 System Status"):
-                status_output = gr.Markdown()
-                refresh_status_btn = gr.Button("🔄 Refresh Status", variant="secondary")
-                
-                refresh_status_btn.click(
-                    get_system_status,
-                    outputs=status_output
-                )
-                
-                # Auto-refresh on load
-                interface.load(get_system_status, outputs=status_output)
-        
-        return interface
-    
-    def launch_gradio(self, **kwargs):
-        """Launch Gradio interface"""
-        interface = self.create_gradio_interface()
-        return interface.launch(**kwargs)
-    
-    async def run_server(self):
-        """Run the MCP server"""
-        async with self.server.run_stdio() as streams:
-            await self.server.run()
-    
-    def shutdown(self):
-        """Shutdown the server"""
-        self.tool_manager.shutdown()
-
-# Global instance
-interactive_server = InteractiveMCPServer()
+        return analytics
